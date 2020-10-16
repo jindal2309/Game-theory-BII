@@ -1,4 +1,4 @@
- '''
+'''
 Csd[i] = cost of vaccination for node i
 Cinf[i]: cost of infection for node i
 x[i]: current strategy of node i
@@ -33,7 +33,7 @@ def best_respose(Csd, Cinf)
 '''
 import numpy as np
 import networkx as nx
-import EoN
+#import EoN
 import matplotlib.pyplot as plt
 import csv, random, pdb, sys
 from IPython.core.debugger import set_trace
@@ -63,16 +63,16 @@ def init_comp(G, x):
     for u in G.nodes(): H.add_node(u)
     for e in G.edges():
         u = e[0]; v = e[1]
-        if x[u] == 0 and x[v] == 0: #both nodes unvacccinated
+        if x[(u,v)] == 0: #edge is not social distanced
             H.add_edge(u, v)
     comp = nx.connected_components(H)
 
     # comp is a list of list; for each component we assign a component id and 
     for c in list(comp):
-        max_comp_id += 1
         for u in c: comp_id[u] = max_comp_id
         comp_len[max_comp_id] = len(list(c))
         comp_d[max_comp_id] = list(c)
+        max_comp_id += 1
 #     for u in x:
 #         if x[u] == 1: comp_id[u] = -1
         
@@ -85,23 +85,27 @@ def comp_cost(x, comp_id, comp_len, Csd, Cinf):
         if x[edge] == 1: 
             cost[edge[0]] = cost.get(edge[0],0) + Csd[edge]
     
+    #print("len of comp_len", len(comp_len))
     for i in Cinf:
-        cost[i] += comp_len[comp_id[i]]*Cinf[i]/(len(x)+0.0)
+        #print("i", i, "Cost", cost.get(i,0))
+        #print("i", i, "comp_len", comp_len[comp_id[i]])
+        cost[i] = cost.get(i,0) + comp_len[comp_id[i]]*Cinf[i]/(len(x)+0.0)
     return cost
 
 
-def check_NE(G, x, comp, comp_id, comp_len, cost, Csd, Cinf):
+def check_NE(G, x, comp_d, comp_id, comp_len, cost, Csd, Cinf):
     num_violated = 0
     for u in G.nodes():
-        edge_group = collections.defaultdict(list)
-        for edge in G.edges():
-            neighbour_comp_id = comp_id[edge[1]]
-            edge_group[neighbour_comp_id].append(edge)
+        conn_edge_group, not_conn_edge_group, conn_comp_len = get_SD_components(G, x, comp_id, comp_len, comp_d, u)
+        conn_edge_group = subset_lists(conn_edge_group)
+        not_conn_edge_group = subset_lists(not_conn_edge_group)
 
         violated_flag = False
-        for neighbour_comp_id, edge_list in edge_group.items(): 
-            if reduction_in_cost(G, x, comp_id, comp_len, cost, Csd, Cinf, u, edge_list) > 0: 
-                violated_flag = True
+        for conn_edge_list in conn_edge_group:
+                for not_conn_edge_list in not_conn_edge_group:
+                    if reduction_in_cost(G, x, comp_id, comp_len, cost, Csd, Cinf, u, conn_edge_list, not_conn_edge_list, conn_comp_len) > 0: 
+                        violated_flag = True
+                        break
             
         if violated_flag == True:
             num_violated += 1
@@ -200,6 +204,7 @@ def reduction_in_cost(G, x, comp_id, comp_len, cost, Csd, Cinf, u, conn_edge_lis
             if x[(edge[1], edge[0])] != 1:
                 cost_reduction += Csd[edge]
                 nbr_comp[comp_id[edge[1]]] = 1
+
         
     for j in nbr_comp: 
         z -= comp_len[j]
@@ -207,7 +212,7 @@ def reduction_in_cost(G, x, comp_id, comp_len, cost, Csd, Cinf, u, conn_edge_lis
     return cost_reduction
    
 #flip strategy of node u
-def update_strategy(x, G, H, comp_d, comp_id, comp_len, cost, Csd, Cinf, comp_max_id, u, conn_edge_list, not_conn_edge_list, conn_comp_len):
+def update_strategy(x, G, H, comp_d, comp_id, comp_len, cost, Csd, Cinf, comp_max_id, u, conn_edge_list, not_conn_edge_list):
 
     social_dist_cost = 0
     for (edge_list, conn_component_id) in conn_edge_list:
@@ -235,7 +240,7 @@ def update_strategy(x, G, H, comp_d, comp_id, comp_len, cost, Csd, Cinf, comp_ma
 
 
 def get_SD_components(G, x, comp_id, comp_len, comp_d, u):
-    curr_comp = list(comp_d[u])
+    curr_comp = list(comp_d[comp_id[u]])
     H = nx.Graph()
     for v in curr_comp: 
         H.add_node(v)
@@ -299,10 +304,7 @@ def best_response(G, Csd, Cinf, x, T, epsilon=0.05):
         for u in G.nodes(): x[u] = np.random.randint(0, 2)
     
     H, comp_d, comp_id, comp_len, comp_max_id = init_comp(G, x)
-    print('ckpt1')
     cost = comp_cost(x, comp_id, comp_len, Csd, Cinf)
-    print('ckpt2')
-    V = G.nodes(); itrn = 0
     for t in range(T):
         #u = random.choice(list(V)); 
         for u in G.nodes():
@@ -311,6 +313,12 @@ def best_response(G, Csd, Cinf, x, T, epsilon=0.05):
             conn_edge_group, not_conn_edge_group, conn_comp_len = get_SD_components(G, x, comp_id, comp_len, comp_d, u)
             conn_edge_group = subset_lists(conn_edge_group)
             not_conn_edge_group = subset_lists(not_conn_edge_group)
+#            print("conn_edge_group", conn_edge_group)
+#            print("not_conn_edge_group", not_conn_edge_group)
+#            print("Edges", G.edges)
+#            print("u: ", u, 'ckpt3')
+#            print("len of conn_edge_group: ", len(conn_edge_group))
+#            print("len of not_conn_edge_group: ", len(not_conn_edge_group))
 
             for conn_edge_list in conn_edge_group:
                 for not_conn_edge_list in not_conn_edge_group:
@@ -329,22 +337,25 @@ if __name__ == '__main__':
 ###########################################
     
     
-    T = int(sys.argv[1])
-    epsilon = float(sys.argv[2])
-    alphavals = sys.argv[3].split(',')
+    T = 20
+    epsilon = 0.0001
+    alphavals = [10, 20, 30, 40, 50, 60]
 
     #### read from a fixed graph
 #     fname = sys.argv[4]
 #     G = read_graph(fname)
 
     ## random graphs
-    n = int(sys.argv[4]); 
-    m = int(sys.argv[5])
+    n = 10
+    m = 2
     # n: Number of nodes; m: Number of edges to attach from a new node to existing nodes
     G = nx.barabasi_albert_graph(n, m)
-
+    
+    # Set random seed
+    np.random.seed(0);
       
     for alpha in alphavals:
+        #print("Started for alpha: ", alpha)
         x = {}; Csd = {}; Cinf = {}; #alpha = 10
         for u in G.nodes():
             #print(u, x[u])
@@ -358,8 +369,12 @@ if __name__ == '__main__':
             x[(v,u)] = np.random.randint(0, 2);
             Csd[(u,v)] = 1;
             Csd[(v,u)] = 1;
-
+        
+        #print("Len of x: ", len(x))
+        #print("Len of Csd: ", len(Csd))
+        #print("Len of Cinf: ", len(Cinf))
         #T = 500
         x, nviol = best_response(G, Csd, Cinf, x, T, epsilon)
-        print(alpha, nviol/len(x), len([i for i in x if x[i] == 1]))
+        print("alpha: ", alpha, "Num violated: ", nviol/len(x), "Social distanced edge: ", len([i for i in x if x[i] == 1]), "Len of x", len(x))
+        #print("x", x)
         sys.stdout.flush()
