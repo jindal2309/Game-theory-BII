@@ -69,7 +69,8 @@ def init_comp(G, x):
 
     # comp is a list of list; for each component we assign a component id and 
     for c in list(comp):
-        for u in c: comp_id[u] = max_comp_id
+        for u in c: 
+            comp_id[u] = max_comp_id
         comp_len[max_comp_id] = len(list(c))
         comp_d[max_comp_id] = list(c)
         max_comp_id += 1
@@ -87,8 +88,6 @@ def comp_cost(x, comp_id, comp_len, Csd, Cinf):
     
     #print("len of comp_len", len(comp_len))
     for i in Cinf:
-        #print("i", i, "Cost", cost.get(i,0))
-        #print("i", i, "comp_len", comp_len[comp_id[i]])
         cost[i] = cost.get(i,0) + comp_len[comp_id[i]]*Cinf[i]/(len(x)+0.0)
     return cost
 
@@ -218,7 +217,7 @@ def update_strategy(x, G, H, comp_d, comp_id, comp_len, cost, Csd, Cinf, comp_ma
     for (edge_list, conn_component_id) in conn_edge_list:
         for edge in edge_list:
             if x[edge] == 0 and x[(edge[1], edge[0])] != 1:
-                # x[edge] -> 1
+                # x[edge] 0-> 1
                 comp_d, comp_id, comp_len, comp_max_id = remove_edge(G, x, comp_d, 
                                                                              comp_id, comp_len, comp_max_id, u, [edge])
                 x[edge] = 1
@@ -228,7 +227,7 @@ def update_strategy(x, G, H, comp_d, comp_id, comp_len, cost, Csd, Cinf, comp_ma
     for edge_list in not_conn_edge_list:
         for edge in edge_list:
             if x[edge] == 1 and x[(edge[1], edge[0])] != 1:
-                #x[edge] -> 0
+                #x[edge] 1-> 0
                 comp_d, comp_id, comp_len, comp_max_id = add_edge(G, x,
                                                                   comp_d, comp_id, comp_len, comp_max_id, u, [edge])
                 x[edge] = 0
