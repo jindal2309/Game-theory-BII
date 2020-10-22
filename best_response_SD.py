@@ -307,17 +307,9 @@ def best_response(G, Csd, Cinf, x, T, epsilon=0.05):
     for t in range(T):
         #u = random.choice(list(V)); 
         for u in G.nodes():
-#             itrn += 1
-#             if (itrn % 10 == 0): print(itrn)
             conn_edge_group, not_conn_edge_group, conn_comp_len = get_SD_components(G, x, comp_id, comp_len, comp_d, u)
             conn_edge_group = subset_lists(conn_edge_group)
             not_conn_edge_group = subset_lists(not_conn_edge_group)
-#            print("conn_edge_group", conn_edge_group)
-#            print("not_conn_edge_group", not_conn_edge_group)
-#            print("Edges", G.edges)
-#            print("u: ", u, 'ckpt3')
-#            print("len of conn_edge_group: ", len(conn_edge_group))
-#            print("len of not_conn_edge_group: ", len(not_conn_edge_group))
 
             for conn_edge_list in conn_edge_group:
                 for not_conn_edge_list in not_conn_edge_group:
@@ -336,22 +328,20 @@ if __name__ == '__main__':
 ###########################################
     
     
-    T = 20
-    epsilon = 0.0001
-    alphavals = [10, 20, 30, 40, 50, 60]
+    T = int(sys.argv[1])
+    epsilon = float(sys.argv[2])
+    alphavals = sys.argv[3].split(',')
 
     #### read from a fixed graph
 #     fname = sys.argv[4]
 #     G = read_graph(fname)
 
     ## random graphs
-    n = 10
-    m = 2
+    n = int(sys.argv[4]); 
+    m = int(sys.argv[5])
     # n: Number of nodes; m: Number of edges to attach from a new node to existing nodes
     G = nx.barabasi_albert_graph(n, m)
-    
-    # Set random seed
-    np.random.seed(0);
+
       
     for alpha in alphavals:
         #print("Started for alpha: ", alpha)
@@ -369,11 +359,8 @@ if __name__ == '__main__':
             Csd[(u,v)] = 1;
             Csd[(v,u)] = 1;
         
-        #print("Len of x: ", len(x))
-        #print("Len of Csd: ", len(Csd))
-        #print("Len of Cinf: ", len(Cinf))
         #T = 500
         x, nviol = best_response(G, Csd, Cinf, x, T, epsilon)
-        print("alpha: ", alpha, "Num violated: ", nviol/len(x), "Social distanced edge: ", len([i for i in x if x[i] == 1]), "Len of x", len(x))
+        print("alpha: ", alpha, "Num violated: ", round(nviol/len(x), 3), "Social distanced edge: ", len([i for i in x if x[i] == 1]), "Len of x", len(x))
         #print("x", x)
         sys.stdout.flush()
