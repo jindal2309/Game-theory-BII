@@ -31,6 +31,41 @@ def best_respose(Csd, Cinf)
         if there is a large comp X: check benefit of vaccination
         if all comp are small: check benefit of not vaccinating
 '''
+
+
+'''
+Csd[i] = cost of vaccination for node i
+Cinf[i]: cost of infection for node i
+x[i]: current strategy of node i
+    x[i] = 1 ==> i is vaccinated
+S(x): set of vaccinated nodes
+comp(x): components formed by residual nodes
+cost[i]: cost of node i
+
+#Evaluating reduction in cost for node i
+#return old cost - new cost
+def reduction_in_cost(x, comp, cost, Csd, Cinf, i)
+    if x[i] == 0, then return  cost[i] - Csd[i]
+    if x[i] == 1
+        A = {comp(j, x): j is a nbr of i }
+        N = \sum_{X in A} |X|
+        return  Csd[i] - N^2 Cinf[i]/n
+
+#best response
+def best_respose(Csd, Cinf)
+    xinit: random strategy
+    initialize comp, cost
+    for t = 1.. T:
+        for i in V:
+            if reduction_in_cost(x, i) > 0:
+                flip x[i]
+                update comp
+
+#possible efficiencies
+    #uniform Csd, Cinf setting
+        if there is a large comp X: check benefit of vaccination
+        if all comp are small: check benefit of not vaccinating
+'''
 import numpy as np
 import networkx as nx
 #import EoN
@@ -88,7 +123,7 @@ def comp_cost(x, comp_id, comp_len, Csd, Cinf):
     
     #print("len of comp_len", len(comp_len))
     for i in Cinf:
-        cost[i] = cost.get(i,0) + comp_len[comp_id[i]]*Cinf[i]/(len(x)+0.0)
+        cost[i] = cost.get(i,0) + comp_len[comp_id[i]]*Cinf[i]/(len(comp_id)+0.0)
     return cost
 
 
@@ -117,7 +152,6 @@ def remove_edge(G, x, comp_d, comp_id, comp_len, comp_max_id, u, edge_list):
     
     C = set(comp_d[comp_id[u]])
     edge_list = set(edge_list)
-    comp_max_id += 1;
     #print('ff', u, 'comp_d=', comp_d, 'comp_id=', comp_id, 'C=', C, 'comp_max_id=', comp_max_id)
     H = nx.Graph()
     for v in C: 
@@ -126,12 +160,18 @@ def remove_edge(G, x, comp_d, comp_id, comp_len, comp_max_id, u, edge_list):
     # Remove edges that are in edge_list    
     for v1 in C: 
         for v2 in G.neighbors(v1):
-            if (v1,v2) not in edge_list: 
+            if v2 in C and (v1,v2) not in edge_list and (v2,v1) not in edge_list: 
+#                print(v1,v2)
                 H.add_edge(v1, v2)
     comp1 = nx.connected_components(H)
     comp = list(comp1).copy()
     #print('fff', H.nodes(), H.edges(), list(comp))
     
+    print("C: ", C)
+    print("comp: ", comp )
+    
+    # Changed ** (verify it)
+    # comp_id = {}; comp_len = {}; comp_d = {};
     for c in list(comp):
         comp_max_id += 1
         comp_d[comp_max_id] = list(c); 
@@ -182,18 +222,19 @@ def reduction_in_cost(G, x, comp_id, comp_len, cost, Csd, Cinf, u, conn_edge_lis
     # If current state of edge_list is not socially distant; 
     # cost increase = cost of making all edge to SD - cost of infection reduced from SD
     # conn_edge_list: currently connected to components that we want to seperate
-    cost_reduction = 0
+    social_dist_cost_change = 0
     # z: nodes reduced from the component; nodes seperated - nodes added
     z = 0
     nbr_comp = {}
     for (edge_list, conn_component_id) in conn_edge_list:
         for edge in edge_list:
             if x[(edge[1], edge[0])] != 1:
-                cost_reduction -= Csd[edge]
+                #cost_reduction -= Csd[edge]
+                social_dist_cost_change += Csd[edge]
                 nbr_comp[conn_component_id] = 1
 
     for conn_component_id in nbr_comp:
-        z += conn_comp_len[conn_component_id]
+        z -= conn_comp_len[conn_component_id]
 
     # Socially distant edges: current x[edge_list[0]] == 1
     # Cost reduced by adding component back
@@ -201,40 +242,48 @@ def reduction_in_cost(G, x, comp_id, comp_len, cost, Csd, Cinf, u, conn_edge_lis
     for edge_list in not_conn_edge_list:
         for edge in edge_list:
             if x[(edge[1], edge[0])] != 1:
-                cost_reduction += Csd[edge]
+                #cost_reduction += Csd[edge]
+                social_dist_cost_change -= Csd[edge]
                 nbr_comp[comp_id[edge[1]]] = 1
 
         
     for j in nbr_comp: 
-        z -= comp_len[j]
-    cost_reduction += z*Cinf[u]/(len(x)+0.0)
+        z += comp_len[j]
+    infection_cost_change = z*Cinf[u]/(len(comp_id)+0.0)
+    new_cost = cost[u] + social_dist_cost_change + infection_cost_change
+    cost_reduction = cost[u] - new_cost
     return cost_reduction
    
 #flip strategy of node u
-def update_strategy(x, G, H, comp_d, comp_id, comp_len, cost, Csd, Cinf, comp_max_id, u, conn_edge_list, not_conn_edge_list):
+def update_strategy(x, G, H, comp_d, comp_id, comp_len, cost, Csd, Cinf, comp_max_id, u, edge_list, split_flag):
 
-    social_dist_cost = 0
-    for (edge_list, conn_component_id) in conn_edge_list:
+    social_dist_cost_change = 0
+    change = 0
+    initial_infection_cost = comp_len[comp_id[u]]*Cinf[u]/(len(comp_id)+0.0)
+    if split_flag == True:
         for edge in edge_list:
             if x[edge] == 0 and x[(edge[1], edge[0])] != 1:
                 # x[edge] 0-> 1
                 comp_d, comp_id, comp_len, comp_max_id = remove_edge(G, x, comp_d, 
                                                                              comp_id, comp_len, comp_max_id, u, [edge])
                 x[edge] = 1
-                social_dist_cost += Csd[edge]
-
-
-    for edge_list in not_conn_edge_list:
+                change = 1
+                social_dist_cost_change += Csd[edge]
+    
+    elif split_flag == False: 
         for edge in edge_list:
             if x[edge] == 1 and x[(edge[1], edge[0])] != 1:
                 #x[edge] 1-> 0
                 comp_d, comp_id, comp_len, comp_max_id = add_edge(G, x,
                                                                   comp_d, comp_id, comp_len, comp_max_id, u, [edge])
                 x[edge] = 0
+                change = 1
+                social_dist_cost_change -= Csd[edge]
 
-    infection_cost = comp_len[comp_id[u]]*Cinf[u]/(len(x)+0.0)
-    cost[u] = social_dist_cost + infection_cost
-    return x, comp_d, comp_id, comp_len, cost, comp_max_id
+    new_infection_cost = comp_len[comp_id[u]]*Cinf[u]/(len(comp_id)+0.0)
+    infection_cost_change = new_infection_cost - initial_infection_cost
+    cost[u] = cost[u] + social_dist_cost_change + infection_cost_change
+    return x, comp_d, comp_id, comp_len, cost, comp_max_id, change
     
 
 
@@ -248,7 +297,7 @@ def get_SD_components(G, x, comp_id, comp_len, comp_d, u):
     # Build a graph of nodes/edges only from curr_comp with no edges on u
     for v1 in curr_comp: 
         for v2 in G.neighbors(v1):
-            if not (v1 == u or v2 == u) and (v2 in curr_comp): 
+            if not (v1 == u or v2 == u) and (v2 in curr_comp) and x[(v1,v2)] != 1 and x[(v2,v1)] != 1: 
                 H.add_edge(v1, v2)
                     
     comp1 = nx.connected_components(H)
@@ -306,22 +355,66 @@ def best_response(G, Csd, Cinf, x, T, epsilon=0.05):
     cost = comp_cost(x, comp_id, comp_len, Csd, Cinf)
     for t in range(T):
         #u = random.choice(list(V)); 
+        change_count = 0
         for u in G.nodes():
+            print("u", u, "comp_id", comp_id)
             conn_edge_group, not_conn_edge_group, conn_comp_len = get_SD_components(G, x, comp_id, comp_len, comp_d, u)
-            conn_edge_group = subset_lists(conn_edge_group)
-            not_conn_edge_group = subset_lists(not_conn_edge_group)
-
-            for conn_edge_list in conn_edge_group:
-                for not_conn_edge_list in not_conn_edge_group:
-                    if reduction_in_cost(G, x, comp_id, comp_len, cost, Csd, Cinf, u, conn_edge_list, not_conn_edge_list, conn_comp_len) > 0:
-                        x, comp_d, comp_id, comp_len, cost, comp_max_id = update_strategy(x, 
-                                            G, H, comp_d, comp_id, comp_len, cost, Csd, Cinf, comp_max_id, u, conn_edge_list, not_conn_edge_list)
-
-                        if check_NE(G, x, comp_d, comp_id, comp_len, cost, Csd, Cinf) < epsilon*len(x):
-                            return x, check_NE(G, x, comp_d, comp_id, comp_len, cost, Csd, Cinf)
-    return x, check_NE(G, x, comp_d, comp_id, comp_len, cost, Csd, Cinf)
-
-
+            print("conn_edge_group, not_conn_edge_group", conn_edge_group, not_conn_edge_group)
+            
+            to_split = [0 for _ in range(len(conn_edge_group))]
+            to_merge = [0 for _ in range(len(not_conn_edge_group))]
+            for i, (conn_edge_list, component_id) in enumerate(conn_edge_group):
+                #print("conn_edge_list", conn_edge_list)
+                #print("component_id", component_id, conn_comp_len[component_id])
+                
+                social_dist_cost = 0
+                for edge in conn_edge_list:
+                    social_dist_cost += Csd[edge]
+                
+                print("Conn cost: ", conn_edge_list, social_dist_cost, conn_comp_len[component_id]*Cinf[u]/(len(comp_id)+0.0))
+                if social_dist_cost < conn_comp_len[component_id]*Cinf[u]/(len(comp_id)+0.0):
+                    to_split[i] = 1
+                
+            for i, not_conn_edge_list in enumerate(not_conn_edge_group):
+                nbr_comp = {}
+                social_dist_cost = 0
+                for edge in not_conn_edge_list:
+                    nbr_comp[comp_id[edge[1]]] = 1
+                    social_dist_cost += Csd[edge]
+                
+                num_node = 0
+                for j in nbr_comp:
+                    num_node += comp_len[j] 
+                
+                print("Not conn cost: ", not_conn_edge_list, social_dist_cost, num_node*Cinf[u]/(len(comp_id)+0.0))
+                if social_dist_cost > num_node*Cinf[u]/(len(comp_id)+0.0):
+                    to_merge[i] = 1
+            
+            
+            for i, (conn_edge_list, component_id) in enumerate(conn_edge_group):
+                if to_split[i] == 1:
+                    # split_flag = True if to_split[i]== 1
+                    x, comp_d, comp_id, comp_len, cost, comp_max_id, change = update_strategy(x, 
+                                            G, H, comp_d, comp_id, comp_len, cost, Csd, Cinf, comp_max_id, u, conn_edge_list, True)
+                    change_count += change
+                    print("remove edge: ", conn_edge_list, comp_id)      
+                
+            for i, not_conn_edge_list in enumerate(not_conn_edge_group):
+                if to_merge[i] == 1:
+                    # split_flag = True if to_split[i]== 1
+                    
+                    x, comp_d, comp_id, comp_len, cost, comp_max_id, change = update_strategy(x, 
+                                            G, H, comp_d, comp_id, comp_len, cost, Csd, Cinf, comp_max_id, u, not_conn_edge_list, False)
+                    change_count += change
+                    print("add edge: ", not_conn_edge_list, comp_id)
+                    
+            #print('\n')
+        
+        print("Iteration: ", t, "Change count: ", change_count, '\n' )
+        if change_count < epsilon*len(x):
+            return x, change_count
+        
+    return x, change_count
 
 if __name__ == '__main__':
 ### run for a fixed network and fixed alpha
@@ -360,7 +453,7 @@ if __name__ == '__main__':
             Csd[(v,u)] = 1;
         
         #T = 500
-        x, nviol = best_response(G, Csd, Cinf, x, T, epsilon)
-        print("alpha: ", alpha, "Num violated: ", round(nviol/len(x), 3), "Social distanced edge: ", len([i for i in x if x[i] == 1]), "Len of x", len(x))
-        #print("x", x)
+        x, change_count = best_response(G, Csd, Cinf, x, T, epsilon)
+        print("alpha: ", alpha, "change_count: ", change_count, "Social distanced edge: ", len([i for i in x if x[i] == 1]), "Len of x", len(x))
+        print("alpha: ", alpha, "x", x, '\n')
         sys.stdout.flush()
