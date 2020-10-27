@@ -167,8 +167,8 @@ def remove_edge(G, x, comp_d, comp_id, comp_len, comp_max_id, u, edge_list):
     comp = list(comp1).copy()
     #print('fff', H.nodes(), H.edges(), list(comp))
     
-    print("C: ", C)
-    print("comp: ", comp )
+    #print("C: ", C, "edge_list", edge_list)
+    #print("comp: ", comp )
     
     # Changed ** (verify it)
     # comp_id = {}; comp_len = {}; comp_d = {};
@@ -261,23 +261,25 @@ def update_strategy(x, G, H, comp_d, comp_id, comp_len, cost, Csd, Cinf, comp_ma
     change = 0
     initial_infection_cost = comp_len[comp_id[u]]*Cinf[u]/(len(comp_id)+0.0)
     if split_flag == True:
-        for edge in edge_list:
-            if x[edge] == 0 and x[(edge[1], edge[0])] != 1:
+        edge = edge_list[0]
+        if x[edge] == 0 and x[(edge[1], edge[0])] != 1:
                 # x[edge] 0-> 1
                 comp_d, comp_id, comp_len, comp_max_id = remove_edge(G, x, comp_d, 
-                                                                             comp_id, comp_len, comp_max_id, u, [edge])
-                x[edge] = 1
+                                                                             comp_id, comp_len, comp_max_id, u, edge_list)
                 change = 1
-                social_dist_cost_change += Csd[edge]
+                for edge in edge_list:
+                    x[edge] = 1
+                    social_dist_cost_change += Csd[edge]
     
     elif split_flag == False: 
-        for edge in edge_list:
-            if x[edge] == 1 and x[(edge[1], edge[0])] != 1:
-                #x[edge] 1-> 0
-                comp_d, comp_id, comp_len, comp_max_id = add_edge(G, x,
-                                                                  comp_d, comp_id, comp_len, comp_max_id, u, [edge])
+        edge = edge_list[0]
+        if x[edge] == 1 and x[(edge[1], edge[0])] != 1:
+            #x[edge] 1-> 0
+            comp_d, comp_id, comp_len, comp_max_id = add_edge(G, x,
+                                                              comp_d, comp_id, comp_len, comp_max_id, u, edge_list)
+            change = 1
+            for edge in edge_list:
                 x[edge] = 0
-                change = 1
                 social_dist_cost_change -= Csd[edge]
 
     new_infection_cost = comp_len[comp_id[u]]*Cinf[u]/(len(comp_id)+0.0)
@@ -357,9 +359,9 @@ def best_response(G, Csd, Cinf, x, T, epsilon=0.05):
         #u = random.choice(list(V)); 
         change_count = 0
         for u in G.nodes():
-            print("u", u, "comp_id", comp_id)
+            #print("u", u, "comp_id", comp_id)
             conn_edge_group, not_conn_edge_group, conn_comp_len = get_SD_components(G, x, comp_id, comp_len, comp_d, u)
-            print("conn_edge_group, not_conn_edge_group", conn_edge_group, not_conn_edge_group)
+            #print("conn_edge_group, not_conn_edge_group", conn_edge_group, not_conn_edge_group)
             
             to_split = [0 for _ in range(len(conn_edge_group))]
             to_merge = [0 for _ in range(len(not_conn_edge_group))]
@@ -371,7 +373,7 @@ def best_response(G, Csd, Cinf, x, T, epsilon=0.05):
                 for edge in conn_edge_list:
                     social_dist_cost += Csd[edge]
                 
-                print("Conn cost: ", conn_edge_list, social_dist_cost, conn_comp_len[component_id]*Cinf[u]/(len(comp_id)+0.0))
+                #print("Conn cost: ", conn_edge_list, social_dist_cost, conn_comp_len[component_id]*Cinf[u]/(len(comp_id)+0.0))
                 if social_dist_cost < conn_comp_len[component_id]*Cinf[u]/(len(comp_id)+0.0):
                     to_split[i] = 1
                 
@@ -386,7 +388,7 @@ def best_response(G, Csd, Cinf, x, T, epsilon=0.05):
                 for j in nbr_comp:
                     num_node += comp_len[j] 
                 
-                print("Not conn cost: ", not_conn_edge_list, social_dist_cost, num_node*Cinf[u]/(len(comp_id)+0.0))
+                #print("Not conn cost: ", not_conn_edge_list, social_dist_cost, num_node*Cinf[u]/(len(comp_id)+0.0))
                 if social_dist_cost > num_node*Cinf[u]/(len(comp_id)+0.0):
                     to_merge[i] = 1
             
@@ -397,7 +399,7 @@ def best_response(G, Csd, Cinf, x, T, epsilon=0.05):
                     x, comp_d, comp_id, comp_len, cost, comp_max_id, change = update_strategy(x, 
                                             G, H, comp_d, comp_id, comp_len, cost, Csd, Cinf, comp_max_id, u, conn_edge_list, True)
                     change_count += change
-                    print("remove edge: ", conn_edge_list, comp_id)      
+                    #print("remove edge: ", conn_edge_list, comp_id)      
                 
             for i, not_conn_edge_list in enumerate(not_conn_edge_group):
                 if to_merge[i] == 1:
@@ -406,15 +408,16 @@ def best_response(G, Csd, Cinf, x, T, epsilon=0.05):
                     x, comp_d, comp_id, comp_len, cost, comp_max_id, change = update_strategy(x, 
                                             G, H, comp_d, comp_id, comp_len, cost, Csd, Cinf, comp_max_id, u, not_conn_edge_list, False)
                     change_count += change
-                    print("add edge: ", not_conn_edge_list, comp_id)
+                    #print("add edge: ", not_conn_edge_list, comp_id)
                     
             #print('\n')
         
-        print("Iteration: ", t, "Change count: ", change_count, '\n' )
+        print("Iteration: ", t, "Change count: ", change_count)
         if change_count < epsilon*len(x):
             return x, change_count
         
     return x, change_count
+
 
 if __name__ == '__main__':
 ### run for a fixed network and fixed alpha
@@ -454,6 +457,6 @@ if __name__ == '__main__':
         
         #T = 500
         x, change_count = best_response(G, Csd, Cinf, x, T, epsilon)
-        print("alpha: ", alpha, "change_count: ", change_count, "Social distanced edge: ", len([i for i in x if x[i] == 1]), "Len of x", len(x))
-        print("alpha: ", alpha, "x", x, '\n')
+        print("alpha: ", alpha, "change_count: ", change_count, "Social distanced edge: ", len([i for i in x if x[i] == 1]), "Len of x", len(x), '\n')
+        #print("alpha: ", alpha, "x", x, '\n')
         sys.stdout.flush()
