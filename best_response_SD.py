@@ -1,3 +1,4 @@
+
 '''
 Csd[i] = cost of vaccination for node i
 Cinf[i]: cost of infection for node i
@@ -74,14 +75,24 @@ import csv, random, pdb, sys
 from IPython.core.debugger import set_trace
 import collections
 from itertools import combinations
+import time
+import multiprocessing
+import threading
 
 #each line: id1, id2
 def read_graph(fname):
     G = nx.Graph()
     fp_reader = csv.reader(open(fname), delimiter = ',')
+    count = 0
     for line in fp_reader:
-        G.add_edge(line[0], line[1])
+        if line[1] != line[2]: 
+            G.add_edge(line[1], line[2])
+            
+        count += 1
+        if count >= 100:
+            break
     return G
+
 
 #create components
 #x: strategy vector where x[i] = 1 means i is vaccinated
@@ -114,37 +125,6 @@ def init_comp(G, x):
         
     return H, comp_d, comp_id, comp_len, max_comp_id
 
-def comp_cost(x, comp_id, comp_len, Csd, Cinf):
-    cost = {}
-    # Assumption: cost of Social distancing is added to both nodes
-    for edge in x:
-        if x[edge] == 1: 
-            cost[edge[0]] = cost.get(edge[0],0) + Csd[edge]
-    
-    #print("len of comp_len", len(comp_len))
-    for i in Cinf:
-        cost[i] = cost.get(i,0) + comp_len[comp_id[i]]*Cinf[i]/(len(comp_id)+0.0)
-    return cost
-
-
-def check_NE(G, x, comp_d, comp_id, comp_len, cost, Csd, Cinf):
-    num_violated = 0
-    for u in G.nodes():
-        conn_edge_group, not_conn_edge_group, conn_comp_len = get_SD_components(G, x, comp_id, comp_len, comp_d, u)
-        conn_edge_group = subset_lists(conn_edge_group)
-        not_conn_edge_group = subset_lists(not_conn_edge_group)
-
-        violated_flag = False
-        for conn_edge_list in conn_edge_group:
-                for not_conn_edge_list in not_conn_edge_group:
-                    if reduction_in_cost(G, x, comp_id, comp_len, cost, Csd, Cinf, u, conn_edge_list, not_conn_edge_list, conn_comp_len) > 0: 
-                        violated_flag = True
-                        break
-            
-        if violated_flag == True:
-            num_violated += 1
-
-    return num_violated
 
 #remove edges from edge_list and split its comp
 #use ids starting from comp_max_id + 1
@@ -216,50 +196,11 @@ def add_edge(G, x, comp_d, comp_id, comp_len, comp_max_id, u, edge_list):
 
     return comp_d, comp_id, comp_len, comp_max_id
 
-# return reduction in cost if edge_list flips its strategy
-def reduction_in_cost(G, x, comp_id, comp_len, cost, Csd, Cinf, u, conn_edge_list, not_conn_edge_list, conn_comp_len):
 
-    # If current state of edge_list is not socially distant; 
-    # cost increase = cost of making all edge to SD - cost of infection reduced from SD
-    # conn_edge_list: currently connected to components that we want to seperate
-    social_dist_cost_change = 0
-    # z: nodes reduced from the component; nodes seperated - nodes added
-    z = 0
-    nbr_comp = {}
-    for (edge_list, conn_component_id) in conn_edge_list:
-        for edge in edge_list:
-            if x[(edge[1], edge[0])] != 1:
-                #cost_reduction -= Csd[edge]
-                social_dist_cost_change += Csd[edge]
-                nbr_comp[conn_component_id] = 1
-
-    for conn_component_id in nbr_comp:
-        z -= conn_comp_len[conn_component_id]
-
-    # Socially distant edges: current x[edge_list[0]] == 1
-    # Cost reduced by adding component back
-    nbr_comp = {}
-    for edge_list in not_conn_edge_list:
-        for edge in edge_list:
-            if x[(edge[1], edge[0])] != 1:
-                #cost_reduction += Csd[edge]
-                social_dist_cost_change -= Csd[edge]
-                nbr_comp[comp_id[edge[1]]] = 1
-
-        
-    for j in nbr_comp: 
-        z += comp_len[j]
-    infection_cost_change = z*Cinf[u]/(len(comp_id)+0.0)
-    new_cost = cost[u] + social_dist_cost_change + infection_cost_change
-    cost_reduction = cost[u] - new_cost
-    return cost_reduction
-   
 #flip strategy of node u
-def update_strategy(x, G, H, comp_d, comp_id, comp_len, cost, Csd, Cinf, comp_max_id, u, edge_list, split_flag):
+def update_strategy(x, G, H, comp_d, comp_id, comp_len, Csd, Cinf, comp_max_id, u, edge_list, split_flag):
 
-    social_dist_cost_change = 0
     change = 0
-    initial_infection_cost = comp_len[comp_id[u]]*Cinf[u]/(len(comp_id)+0.0)
     if split_flag == True:
         edge = edge_list[0]
         if x[edge] == 0 and x[(edge[1], edge[0])] != 1:
@@ -269,7 +210,6 @@ def update_strategy(x, G, H, comp_d, comp_id, comp_len, cost, Csd, Cinf, comp_ma
                 change = 1
                 for edge in edge_list:
                     x[edge] = 1
-                    social_dist_cost_change += Csd[edge]
     
     elif split_flag == False: 
         edge = edge_list[0]
@@ -280,12 +220,8 @@ def update_strategy(x, G, H, comp_d, comp_id, comp_len, cost, Csd, Cinf, comp_ma
             change = 1
             for edge in edge_list:
                 x[edge] = 0
-                social_dist_cost_change -= Csd[edge]
 
-    new_infection_cost = comp_len[comp_id[u]]*Cinf[u]/(len(comp_id)+0.0)
-    infection_cost_change = new_infection_cost - initial_infection_cost
-    cost[u] = cost[u] + social_dist_cost_change + infection_cost_change
-    return x, comp_d, comp_id, comp_len, cost, comp_max_id, change
+    return x, comp_d, comp_id, comp_len, comp_max_id, change
     
 
 
@@ -339,14 +275,42 @@ def get_SD_components(G, x, comp_id, comp_len, comp_d, u):
     return conn_edge_group1, not_conn_edge_group, conn_comp_len
 
 
-def subset_lists(my_list):
-    subs = []
-    for i in range(0, len(my_list)+1):
-      temp = [list(x) for x in combinations(my_list, i)]
-      if len(temp)>0:
-        subs.extend(temp)
-    return subs
-
+def fn1(conn_edge_group, to_split, Csd, Cinf, conn_comp_len, comp_id):        
+    for i, (conn_edge_list, component_id) in enumerate(conn_edge_group):
+        #print("conn_edge_list", conn_edge_list)
+        #print("component_id", component_id, conn_comp_len[component_id])
+        social_dist_cost = 0
+        for edge in conn_edge_list:
+            social_dist_cost += Csd[edge]
+        
+        #print("Conn cost: ", conn_edge_list, social_dist_cost, conn_comp_len[component_id]*Cinf[u]/(len(comp_id)+0.0))
+        if social_dist_cost < conn_comp_len[component_id]*Cinf[u]/(len(comp_id)+0.0):
+            to_split[i] = 1
+    
+def fn2(not_conn_edge_group, to_merge, Csd, Cinf, comp_len, comp_id):
+    for i, not_conn_edge_list in enumerate(not_conn_edge_group):
+        nbr_comp = {}
+        social_dist_cost = 0
+        for edge in not_conn_edge_list:
+            nbr_comp[comp_id[edge[1]]] = 1
+            social_dist_cost += Csd[edge]
+        
+        num_node = 0
+        for j in nbr_comp:
+            num_node += comp_len[j] 
+        
+        #print("Not conn cost: ", not_conn_edge_list, social_dist_cost, num_node*Cinf[u]/(len(comp_id)+0.0))
+        if social_dist_cost > num_node*Cinf[u]/(len(comp_id)+0.0):
+            to_merge[i] = 1
+     
+def print_analysis(comp_id, comp_len): 
+    component_ids = np.unique(list(comp_id.values()))  
+    component_lengths = [comp_len[i] for i in component_ids] 
+    avg_comp_size = round(np.mean(component_lengths),2)
+    max_comp_size = np.max(component_lengths)
+    print("Average component size: ", avg_comp_size)
+    print("Max component size: ", max_comp_size) 
+    return avg_comp_size, max_comp_size   
 
 #start at strategy x and run for T steps
 def best_response(G, Csd, Cinf, x, T, epsilon=0.05):
@@ -354,21 +318,24 @@ def best_response(G, Csd, Cinf, x, T, epsilon=0.05):
         for u in G.nodes(): x[u] = np.random.randint(0, 2)
     
     H, comp_d, comp_id, comp_len, comp_max_id = init_comp(G, x)
-    cost = comp_cost(x, comp_id, comp_len, Csd, Cinf)
+    
+    start_time = time.time()
     for t in range(T):
-        #u = random.choice(list(V)); 
+        #u = random.choice(list(V));
+        per_itr_st = time.time()
         change_count = 0
         for u in G.nodes():
+            per_node_st = time.time()
             #print("u", u, "comp_id", comp_id)
             conn_edge_group, not_conn_edge_group, conn_comp_len = get_SD_components(G, x, comp_id, comp_len, comp_d, u)
             #print("conn_edge_group, not_conn_edge_group", conn_edge_group, not_conn_edge_group)
             
             to_split = [0 for _ in range(len(conn_edge_group))]
             to_merge = [0 for _ in range(len(not_conn_edge_group))]
+            
             for i, (conn_edge_list, component_id) in enumerate(conn_edge_group):
                 #print("conn_edge_list", conn_edge_list)
                 #print("component_id", component_id, conn_comp_len[component_id])
-                
                 social_dist_cost = 0
                 for edge in conn_edge_list:
                     social_dist_cost += Csd[edge]
@@ -392,12 +359,26 @@ def best_response(G, Csd, Cinf, x, T, epsilon=0.05):
                 if social_dist_cost > num_node*Cinf[u]/(len(comp_id)+0.0):
                     to_merge[i] = 1
             
+#            to_split = multiprocessing.Array('i', len(conn_edge_group)) 
+#            to_merge = multiprocessing.Array('i', len(not_conn_edge_group))
+#            
+#            p1 = multiprocessing.Process(target=fn1, args = (conn_edge_group, to_split, Csd, Cinf, conn_comp_len, comp_id))
+#            p2 = multiprocessing.Process(target=fn2, args = (conn_edge_group, to_merge, Csd, Cinf, comp_len, comp_id))
+            
+#            p1 = threading.Thread(target=fn1, args = (conn_edge_group, to_split, Csd, Cinf, conn_comp_len, comp_id))
+#            p2 = threading.Thread(target=fn2, args = (conn_edge_group, to_merge, Csd, Cinf, comp_len, comp_id))
+#            
+#            p1.start()
+#            p2.start()
+#            
+#            p1.join()
+#            p2.join()
             
             for i, (conn_edge_list, component_id) in enumerate(conn_edge_group):
                 if to_split[i] == 1:
                     # split_flag = True if to_split[i]== 1
-                    x, comp_d, comp_id, comp_len, cost, comp_max_id, change = update_strategy(x, 
-                                            G, H, comp_d, comp_id, comp_len, cost, Csd, Cinf, comp_max_id, u, conn_edge_list, True)
+                    x, comp_d, comp_id, comp_len, comp_max_id, change = update_strategy(x, 
+                                            G, H, comp_d, comp_id, comp_len, Csd, Cinf, comp_max_id, u, conn_edge_list, True)
                     change_count += change
                     #print("remove edge: ", conn_edge_list, comp_id)      
                 
@@ -405,17 +386,24 @@ def best_response(G, Csd, Cinf, x, T, epsilon=0.05):
                 if to_merge[i] == 1:
                     # split_flag = True if to_split[i]== 1
                     
-                    x, comp_d, comp_id, comp_len, cost, comp_max_id, change = update_strategy(x, 
-                                            G, H, comp_d, comp_id, comp_len, cost, Csd, Cinf, comp_max_id, u, not_conn_edge_list, False)
+                    x, comp_d, comp_id, comp_len, comp_max_id, change = update_strategy(x, 
+                                            G, H, comp_d, comp_id, comp_len, Csd, Cinf, comp_max_id, u, not_conn_edge_list, False)
                     change_count += change
                     #print("add edge: ", not_conn_edge_list, comp_id)
                     
             #print('\n')
-        
-        print("Iteration: ", t, "Change count: ", change_count)
-        if change_count < epsilon*len(x):
-            return x, change_count
-        
+#            if u == 0:
+#                print("Per node time in sec: ", time.time()- per_node_st)
+            
+        #print("Per itr time in mins: ", round((time.time()-per_itr_st)/60,4))
+            
+        #print("Iteration: ", t, "Change count: ", change_count, '\n' )
+        if change_count == 0:
+            print("Total time in mins: ", round((time.time()-start_time)/60,4), "in", t+1, "iterations")
+            avg_comp_size, max_comp_size = print_analysis(comp_id, comp_len)
+            return x, change_count, avg_comp_size, max_comp_size 
+    
+    print("Total time: ", (time.time()-start_time)/60)
     return x, change_count
 
 
@@ -423,40 +411,82 @@ if __name__ == '__main__':
 ### run for a fixed network and fixed alpha
 ###########################################
     
-    
-    T = int(sys.argv[1])
-    epsilon = float(sys.argv[2])
-    alphavals = sys.argv[3].split(',')
+    num_times = 50
+    T = 100
+    epsilon = 0.0001
+    alphavals = [1, 2, 3, 4, 5, 10, 20, 50, 75, 100, 200, 500, 1000]
+    #alphavals = [3, 4, 60, 70, 80, 90, 1000]
 
     #### read from a fixed graph
 #     fname = sys.argv[4]
 #     G = read_graph(fname)
+    
+    
+    #nx.draw_networkx(G)
 
-    ## random graphs
-    n = int(sys.argv[4]); 
-    m = int(sys.argv[5])
-    # n: Number of nodes; m: Number of edges to attach from a new node to existing nodes
-    G = nx.barabasi_albert_graph(n, m)
-
-      
-    for alpha in alphavals:
-        #print("Started for alpha: ", alpha)
-        x = {}; Csd = {}; Cinf = {}; #alpha = 10
-        for u in G.nodes():
-            #print(u, x[u])
-            Cinf[u] = 1*float(alpha)
-
-        for edge in G.edges():
-            # TODO: use np.random.randint(0, 2) or constant
-            # 0: no social distance; 1: social distance
-            u,v = edge
-            x[(u,v)] = np.random.randint(0, 2);
-            x[(v,u)] = np.random.randint(0, 2);
-            Csd[(u,v)] = 1;
-            Csd[(v,u)] = 1;
-        
-        #T = 500
-        x, change_count = best_response(G, Csd, Cinf, x, T, epsilon)
-        print("alpha: ", alpha, "change_count: ", change_count, "Social distanced edge: ", len([i for i in x if x[i] == 1]), "Len of x", len(x), '\n')
-        #print("alpha: ", alpha, "x", x, '\n')
+#    n = 4
+#    m = 1
+#    # n: Number of nodes; m: Number of edges to attach from a new node to existing nodes
+#    H = nx.barabasi_albert_graph(n, m)
+#    # nx.draw_networkx(H)
+#    
+#    G = nx.Graph()
+#    for u in H.nodes(): 
+#        G.add_node(u)
+#        
+#    for u in list(H.nodes())[:-1]:
+#        G.add_edge(u, u+1)
+#    nx.draw_networkx(G)
+    
+    # Set random seed
+    total_data = [[0 for _ in range(5)] for _ in range(len(alphavals))]
+    raw_data = []
+    np.random.seed(0);
+    
+    for times in range(num_times):
+        ## random graphs
+        n = 1000
+        m = 4
+        # n: Number of nodes; m: Number of edges to attach from a new node to existing nodes
+        G = nx.barabasi_albert_graph(n, m)
+        print("Num of nodes: ", len(G.nodes), "Num of edges: ", len(G.edges))
+        for ind, alpha in enumerate(alphavals):
+            print("alpha: ", alpha)
+            x = {}; Csd = {}; Cinf = {}; #alpha = 10
+            for u in G.nodes():
+                Cinf[u] = 1*float(alpha)
+    
+            for edge in G.edges():
+                # TODO: use np.random.randint(0, 2) or constant
+                # 0: no social distance; 1: social distance
+                u,v = edge
+                x[(u,v)] = 0 #np.random.randint(0, 2);
+                x[(v,u)] = 0 #np.random.randint(0, 2);
+                Csd[(u,v)] = 1;
+                Csd[(v,u)] = 1;
+            
+            x, change_count, avg_comp_size, max_comp_size = best_response(G, Csd, Cinf, x, T, epsilon)
+            sd_edges = len([i for i in x if x[i] == 1])
+            print("num_times :", times)
+            temp = [alpha, times, avg_comp_size, max_comp_size, sd_edges]
+            raw_data.append(temp)
+            
+            total_data_temp = [alpha, times+1, round((total_data[ind][2]*times + avg_comp_size)/(times+1),3), round((total_data[ind][3]*times + max_comp_size)/(times+1),3), round((total_data[ind][4]*times + sd_edges)/(times+1),3)]
+            
+            total_data[ind] = total_data_temp
+            with open('./out/BA_t50_n1000_m4_raw_v3.txt', 'w') as f:
+                for row in raw_data:
+                    for item in row:
+                        f.write("%s\t" % item)
+                    f.write("\n")
+            
+            with open('./out/BA_t_50_n1000_m4_avg_v3.txt', 'w') as f:
+                for row in total_data:
+                    for item in row:
+                        f.write("%s\t" % item)
+                    f.write("\n")
+            
+            print("alpha: ", alpha, "change_count: ", change_count, "Social distanced edge: ", sd_edges, "Len of x", len(x)//2, '\n')
+        # print("alpha: ", alpha, "x", x, '\n')
         sys.stdout.flush()
+        
