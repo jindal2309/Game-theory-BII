@@ -73,7 +73,7 @@ import networkx as nx
 #import EoN
 import matplotlib.pyplot as plt
 import csv, random, pdb, sys
-from IPython.core.debugger import set_trace
+#from IPython.core.debugger import set_trace
 import collections
 from itertools import combinations
 import time

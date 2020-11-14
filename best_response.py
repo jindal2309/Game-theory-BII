@@ -33,10 +33,10 @@ def best_respose(Cvacc, Cinf)
 '''
 import numpy as np
 import networkx as nx
-import EoN
+#import EoN
 import matplotlib.pyplot as plt
 import csv, random, pdb, sys
-from IPython.core.debugger import set_trace
+#from IPython.core.debugger import set_trace
 
 #each line: id1, id2
 def read_graph(fname):
