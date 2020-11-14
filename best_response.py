@@ -42,8 +42,11 @@ from IPython.core.debugger import set_trace
 def read_graph(fname):
     G = nx.Graph()
     fp_reader = csv.reader(open(fname), delimiter = ',')
+    next(fp_reader)
     for line in fp_reader:
-        G.add_edge(line[0], line[1])
+        if line[1] != line[2]: G.add_edge(line[1], line[2])
+#     for line in fp_reader:
+#         G.add_edge(line[0], line[1])
     return G
 
 #create components
@@ -96,7 +99,7 @@ def reduction_in_cost(G, x, comp_id, comp_len, cost, Cvacc, Cinf, u):
     if x[u] == 0: 
         return  cost[u] - Cvacc[u]
     if x[u] == 1:
-        nbr_comp = {}; z = 0
+        nbr_comp = {}; z = 1
         for v in G.neighbors(u): 
             if x[v] == 0: nbr_comp[comp_id[v]] = 1
         for j in nbr_comp: z += comp_len[j]
@@ -141,15 +144,15 @@ def add_node(G, x, comp_d, comp_id, comp_len, comp_max_id, u):
     del comp_len[comp_id[u]]
     
     comp_max_id += 1
-    S = [u]
+    S = set([u])
 
     for v in G.neighbors(u):
         if x[v] == 0: #v is not vaccinated
             if comp_id[v] != comp_id[u] and comp_id[v] in comp_d:
-                T = comp_d[comp_id[v]].copy()
+                T = set(comp_d[comp_id[v]].copy())
             elif comp_id[v] == comp_id[u]:
-                T = Tu
-            S = S + T
+                T = set(Tu)
+            S = S | T
             if comp_id[v] in comp_d: 
                 del comp_d[comp_id[v]]
                 del comp_len[comp_id[v]]
@@ -159,7 +162,7 @@ def add_node(G, x, comp_d, comp_id, comp_len, comp_max_id, u):
 #                 if comp_id[vprime] not in comp_len: print('err3', vprime, u, v)
     #merge the components containing S into one
     comp_id[u] = comp_max_id
-    comp_d[comp_max_id] = S
+    comp_d[comp_max_id] = list(S)
     comp_len[comp_max_id] = len(S)
 
     return comp_d, comp_id, comp_len, comp_max_id
@@ -181,6 +184,14 @@ def update_strategy(x, G, H, comp_d, comp_id, comp_len, cost, Cvacc, Cinf, comp_
         cost[u] = comp_len[comp_id[u]]*Cinf[u]/(len(x)+0.0)
         return x, comp_d, comp_id, comp_len, cost, comp_max_id
         
+def print_analysis(comp_id, comp_len): 
+    component_ids = np.unique(list(comp_id.values()))  
+    component_lengths = [comp_len[i] for i in component_ids] 
+    avg_comp_size = round(np.mean(component_lengths),2)
+    max_comp_size = np.max(component_lengths)
+    print("Average component size: ", avg_comp_size)
+    print("Max component size: ", max_comp_size) 
+    return avg_comp_size, max_comp_size  
 
 #start at strategy x and run for T steps
 def best_response(G, Cvacc, Cinf, x, T, epsilon=0.05):
@@ -193,49 +204,102 @@ def best_response(G, Cvacc, Cinf, x, T, epsilon=0.05):
     V = G.nodes(); itrn = 0
     for t in range(T):
         #u = random.choice(list(V)); 
+        num_updated = 0
         for u in G.nodes():
 #             itrn += 1
 #             if (itrn % 10 == 0): print(itrn)
             if reduction_in_cost(G, x, comp_id, comp_len, cost, Cvacc, Cinf, u) > 0:
                 x, comp_d, comp_id, comp_len, cost, comp_max_id = update_strategy(x, 
                                     G, H, comp_d, comp_id, comp_len, cost, Cvacc, Cinf, comp_max_id, u)
+                num_updated += 1
 
-                if check_NE(G, x, comp_d, comp_id, comp_len, cost, Cvacc, Cinf) < epsilon*len(x):
-                    return x, check_NE(G, x, comp_d, comp_id, comp_len, cost, Cvacc, Cinf)
-    return x, check_NE(G, x, comp_d, comp_id, comp_len, cost, Cvacc, Cinf)
+#                 if check_NE(G, x, comp_d, comp_id, comp_len, cost, Cvacc, Cinf) < epsilon*len(x):
+#                     return x, check_NE(G, x, comp_d, comp_id, comp_len, cost, Cvacc, Cinf)
+        if num_updated == 0:
+            avg_comp_size, max_comp_size = print_analysis(comp_id, comp_len)
+            return x, check_NE(G, x, comp_d, comp_id, comp_len, cost, Cvacc, Cinf), avg_comp_size, max_comp_size
+    
+    avg_comp_size, max_comp_size = print_analysis(comp_id, comp_len)
+    return x, check_NE(G, x, comp_d, comp_id, comp_len, cost, Cvacc, Cinf), avg_comp_size, max_comp_size
 
 
+#start at strategy x and run for T steps
+def best_response_v2(G, Cvacc, Cinf, x, T, epsilon=0.05):
+    if len(x) == 0:
+        for u in G.nodes(): x[u] = np.random.randint(0, 2)
+    
+    H, comp_d, comp_id, comp_len, comp_max_id = init_comp(G, x)
+    #print('x', x)
+    cost = comp_cost(x, comp_id, comp_len, Cvacc, Cinf)
+    V = G.nodes(); itrn = 0
+    for t in range(T):
+        #u = random.choice(list(V)); 
+        num_updated = 0
+        for u in G.nodes():
+#             itrn += 1
+#             if (itrn % 10 == 0): print(itrn)
+            num_updated += update_if_reduce(x, G, H, comp_d, comp_id, comp_len, 
+                                            cost, Cvacc, Cinf, comp_max_id, u)
+        if num_updated <= epsilon*len(x): return x, num_updated
+    return x, num_updated
+
+def save_file(filename, data):
+    with open(filename, 'w') as f:
+        for row in data:
+            for item in row:
+                f.write("%s\t" % item)
+            f.write("\n")
 
 if __name__ == '__main__':
 ### run for a fixed network and fixed alpha
-###########################################
-    
+##########################################
     
     T = int(sys.argv[1])
     epsilon = float(sys.argv[2])
     alphavals = sys.argv[3].split(',')
+    n = int(sys.argv[4]); 
+    m = int(sys.argv[5])
+    avg_file_name = sys.argv[6]
+    raw_file_name = sys.argv[7]   
+    
+    raw_data = []
+    num_times = 100
+    np.random.seed(0);
 
     #### read from a fixed graph
 #     fname = sys.argv[4]
 #     G = read_graph(fname)
 
     ## random graphs
-    n = int(sys.argv[4]); 
-    m = int(sys.argv[5])
-    G = nx.barabasi_albert_graph(n, m)
 
-      
-    for alpha in alphavals:
-        #print("Started for alpha: ", alpha)
-        x = {}; Cvacc = {}; Cinf = {}; #alpha = 10
-        for u in G.nodes():
-            x[u] = np.random.randint(0, 2)
-            #print(u, x[u])
-            Cvacc[u] = 1; Cinf[u] = Cvacc[u]*float(alpha)
+    print("Num of nodes: ", n, "m: ", m)
+    for times in range(num_times):
+        G = nx.barabasi_albert_graph(n, m)
+        for ind, alpha in enumerate(alphavals):
+            x = {}; Cvacc = {}; Cinf = {}; #alpha = 10
+            for u in G.nodes():
+                x[u] = np.random.randint(0, 2)
+                #print(u, x[u])
+                Cvacc[u] = 1; Cinf[u] = Cvacc[u]*float(alpha)
 
-        #T = 500
-        x, nviol = best_response(G, Cvacc, Cinf, x, T, epsilon)
-        #print(alpha, nviol/len(x), len([i for i in x if x[i] == 1]))
-        print("alpha: ", alpha, "Num violated: ", round(nviol/len(x), 3), "Vaccinated nodes: ", len([i for i in x if x[i] == 1]), "Len of x", len(x))
-        sys.stdout.flush()
+            #T = 500
+            x, nviol, avg_comp_size, max_comp_size = best_response(G, Cvacc, Cinf, x, T, epsilon)
+            num_vacc_nodes = len([i for i in x if x[i] == 1])
+            temp = [alpha, times, avg_comp_size, max_comp_size, num_vacc_nodes]
+            raw_data.append(temp)
 
+            print("alpha: ", alpha, "Percent violated: ", nviol/len(x), "Num of vaccinated nodes: ", num_vacc_nodes)
+
+        total_data = [[0 for _ in range(5)] for _ in range(len(alphavals))]
+        for i in range(len(alphavals)):
+            total_data[i][0] = alphavals[i]
+            total_data[i][1] = times
+            for j in range(2,5):
+                val_list = [raw_data[k*len(alphavals)+i][j] for k in range(times)]
+                std = round(np.std(val_list),1)
+                mean = round(np.mean(val_list),3)
+                total_data[i][j] = str(mean) + " \u00B1 " + str(std)
+
+        save_file(raw_file_name, raw_data)
+        save_file(avg_file_name, total_data)
+        #sys.stdout.flush()
